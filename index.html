@@ -2608,7 +2608,7 @@ function renderPetListBar() {
     const dead = p.status === "dead" ? "dead" : "";
     const ultimate = getStage(p.level) === "u" ? "ultimate" : "";
     return `<div class="pet-thumb ${active} ${dead} ${ultimate}" onclick="switchPet('${p.id}')">
-      <img class="lazy-img" data-src="${getPetImage(p)}" src="${LAZY_PLACEHOLDER}" alt="${p.name}">
+      <img src="${getPetImage(p)}" alt="${p.name}">
       <div class="lvl ${ultimate ? 'lvl-gold' : ''}">Lv.${p.level}</div>
       ${ultimate ? '<div class="crown">👑</div>' : ''}
     </div>`;
@@ -2638,7 +2638,7 @@ function releasePet(petId) {
     <button class="modal-close" onclick="hideModal()">✕</button>
     <div class="modal-title">⚠️ 确认放生</div>
     <div style="text-align:center;padding:16px 0;">
-      <img class="lazy-img" data-src="${getPetImage(pet)}" src="${LAZY_PLACEHOLDER}" style="width:80px;height:80px;border-radius:16px;object-fit:cover;">
+      <img src="${getPetImage(pet)}" style="width:80px;height:80px;border-radius:16px;object-fit:cover;">
       <div style="font-size:16px;font-weight:700;margin-top:10px;">${pet.name}</div>
       <div style="font-size:13px;color:#999;margin-top:4px;">${(PET_TYPES[pet.type]||{}).name||pet.type} · Lv.${pet.level} · ${pet.wins||0}胜${pet.losses||0}负</div>
       <div style="font-size:13px;color:#e74c3c;margin-top:12px;">放生后宠物将永久消失，无法恢复！</div>
@@ -2687,7 +2687,7 @@ function showPetSkillsModal() {
     <button class="modal-close" onclick="hideModal()">✕</button>
     <div class="modal-title">✨ ${pet.name} 的技能</div>
     <div style="text-align:center;margin-bottom:12px;">
-      <img class="lazy-img" data-src="${getPetImage(pet)}" src="${LAZY_PLACEHOLDER}" style="width:96px;height:96px;border-radius:16px;object-fit:cover;">
+      <img src="${getPetImage(pet)}" style="width:96px;height:96px;border-radius:16px;object-fit:cover;">
       <div style="font-size:13px;color:#888;margin-top:6px;">${elementLabel(pet.element)} · ${getStageName(pet.level)} · Lv.${pet.level}</div>
     </div>
     <div class="skill-list">${rows}</div>
@@ -2726,7 +2726,7 @@ function showAdoptModal() {
   selectedAdoptType = null;
   const cards = Object.entries(PET_TYPES).map(([key, t]) => `
     <div class="adopt-card" data-type="${key}" onclick="selectAdoptType('${key}')">
-      <img class="lazy-img" data-src="${PET_IMAGES[key]}" src="${LAZY_PLACEHOLDER}" alt="${t.name}">
+      <img src="${PET_IMAGES[key]}" alt="${t.name}">
       <div class="name">${t.emoji} ${t.name}</div>
       <div class="desc">${t.desc}</div>
       <div class="elem">${elementLabel(t.element)}</div>
@@ -3096,7 +3096,7 @@ function renderBattleHall() {
         if (!rp) return `<div class="rival-item"><div class="avatar">${rs.name.charAt(0)}</div>
           <div class="info"><div class="name">${rs.name}</div><div class="meta">还没有宠物</div></div></div>`;
         return `<div class="rival-item" onclick="startRivalFight('${id}')">
-          <div class="avatar" style="overflow:hidden;"><img class="lazy-img" data-src="${getPetImage(rp)}" src="${LAZY_PLACEHOLDER}" style="width:100%;height:100%;object-fit:cover;"></div>
+          <div class="avatar" style="overflow:hidden;"><img src="${getPetImage(rp)}" style="width:100%;height:100%;object-fit:cover;"></div>
           <div class="info">
             <div class="name">${rs.name} 的 ${rp.name}</div>
             <div class="meta">${PET_TYPES[rp.type].emoji} Lv.${rp.level} · ${elementLabel(rp.element)} · 胜${rp.wins||0}</div>
@@ -4790,7 +4790,7 @@ function teacherDeletePet() {
     <button class="modal-close" onclick="hideModal()">✕</button>
     <div class="modal-title">⚠️ 确认删除宠物</div>
     <div style="text-align:center;padding:16px 0;">
-      <img class="lazy-img" data-src="${getPetImage(pet)}" src="${LAZY_PLACEHOLDER}" style="width:80px;height:80px;border-radius:16px;object-fit:cover;">
+      <img src="${getPetImage(pet)}" style="width:80px;height:80px;border-radius:16px;object-fit:cover;">
       <div style="font-size:16px;font-weight:700;margin-top:10px;">${pet.name}</div>
       <div style="font-size:13px;color:#999;margin-top:4px;">学生：${s.name} · ${(PET_TYPES[pet.type]||{}).name||pet.type} · Lv.${pet.level}</div>
       <div style="font-size:13px;color:#e74c3c;margin-top:12px;">删除后宠物将永久消失，无法恢复！</div>
