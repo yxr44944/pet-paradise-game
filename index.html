@@ -2188,6 +2188,11 @@ function loadData() {
 
 let syncTimer = null;
 function saveData() {
+  // 更新当前学生的最后修改时间
+  if (gameData.currentStudentId && gameData.students[gameData.currentStudentId]) {
+    gameData.students[gameData.currentStudentId].lastUpdate = Date.now();
+  }
+  
   try { localStorage.setItem(DB_KEY, JSON.stringify(gameData)); }
   catch(e) { toast("保存失败：存储空间不足"); }
   
@@ -2424,8 +2429,8 @@ async function doLogin() {
     toast("正在同步云端数据...");
     const allStudents = await ghLoadStudents();
     if (allStudents && Object.keys(allStudents).length > 0) {
-      // 合并到本地
-      Object.assign(gameData.students, allStudents);
+      // 智能合并：新的不被旧的覆盖
+      gameData.students = mergeStudents(gameData.students, allStudents);
       localStorage.setItem(DB_KEY, JSON.stringify(gameData));
       renderStudentList();
     }
@@ -5234,12 +5239,34 @@ try { const sv = localStorage.getItem("petSound"); if (sv !== null) Sound.enable
 document.getElementById("soundBtn").textContent = Sound.enabled ? "🔊" : "🔇";
 
 // 从GitHub拉取学生列表
+// 智能合并学生数据：云端新的就用云端，本地新的就用本地
+function mergeStudents(localStudents, cloudStudents) {
+  const merged = { ...localStudents };
+  for (const [id, cloudStudent] of Object.entries(cloudStudents)) {
+    const localStudent = merged[id];
+    if (!localStudent) {
+      // 云端有本地没有的，加进来
+      merged[id] = cloudStudent;
+    } else {
+      // 都有，对比更新时间
+      const localTime = localStudent.lastUpdate || 0;
+      const cloudTime = cloudStudent.lastUpdate || 0;
+      if (cloudTime > localTime) {
+        // 云端更新，用云端的
+        merged[id] = cloudStudent;
+      }
+      // 否则保留本地的（本地更新）
+    }
+  }
+  return merged;
+}
+
 async function initFromGitHub() {
   if (ghEnabled) {
     console.log("从GitHub拉取学生数据...");
     const allStudents = await ghLoadStudents();
     if (allStudents && Object.keys(allStudents).length > 0) {
-      Object.assign(gameData.students, allStudents);
+      gameData.students = mergeStudents(gameData.students, allStudents);
       localStorage.setItem(DB_KEY, JSON.stringify(gameData));
       renderStudentList();
       console.log("GitHub拉取成功，共" + Object.keys(allStudents).length + "个学生");
