@@ -4669,6 +4669,12 @@ function confirmTeacherReward() {
     s.unreadRewards = s.unreadRewards || [];
     s.unreadRewards.push({ time: Date.now(), items: {...rewards}, exp: expBonus });
   });
+  // 给所有被发奖励的学生更新时间戳
+  targetIds.forEach(id => {
+    if (gameData.students[id]) {
+      gameData.students[id].lastUpdate = Date.now();
+    }
+  });
   saveData();
   const rDesc = (expBonus>0?'经验+'+expBonus+' ':'')+Object.entries(rewards).map(([k,q])=>ITEMS[k]?ITEMS[k].emoji+'x'+q:'').join(' ');
   addTeacherLog("发放奖励", `给${targetLabel}(${targetIds.length}人): ${rDesc}`);
@@ -4774,6 +4780,10 @@ function confirmTeacherDeduct() {
   
   if (!hasDeduct) { toast("请设置扣除内容"); Sound.error(); return; }
   
+  // 更新所有被扣除学生的时间戳
+  targetIds.forEach(id => {
+    if (gameData.students[id]) gameData.students[id].lastUpdate = Date.now();
+  });
   saveData();
   Sound.error();
   const itemTxt = Object.entries(deductItems).map(([k,v]) => `${ITEMS[k].name}×${v}`).join("、");
