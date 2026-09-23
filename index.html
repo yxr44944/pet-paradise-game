@@ -1647,6 +1647,15 @@ body {
 </style>
 </head>
 <body>
+<div id="syncStatus" style="position:fixed;top:8px;right:80px;z-index:9999;font-size:12px;padding:4px 10px;border-radius:12px;background:rgba(0,0,0,0.5);color:white;display:none;"></div>
+<div id="loadingScreen" style="position:fixed;top:0;left:0;width:100%;height:100%;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;">
+  <div style="font-size:48px;margin-bottom:16px;">🐾</div>
+  <div style="color:white;font-size:20px;font-weight:bold;margin-bottom:20px;">宠物乐园加载中...</div>
+  <div style="width:240px;height:8px;background:rgba(255,255,255,0.2);border-radius:4px;overflow:hidden;">
+    <div id="loadingBar" style="height:100%;width:0%;background:white;border-radius:4px;transition:width 0.3s;"></div>
+  </div>
+  <div id="loadingText" style="color:rgba(255,255,255,0.8);font-size:13px;margin-top:10px;">0%</div>
+</div>
 <canvas id="bgParticles"></canvas>
 <div class="app-container">
 
@@ -2187,6 +2196,21 @@ function loadData() {
 }
 
 let syncTimer = null;
+
+function updateSyncStatus() {
+  const el = document.getElementById("syncStatus");
+  if (!el) return;
+  if (window._syncStatus === "ok") {
+    el.textContent = "✅ 已同步"; el.style.background = "rgba(0,184,148,0.8)"; el.style.display = "block";
+  } else if (window._syncStatus === "failed") {
+    el.textContent = "⚠️ 同步失败"; el.style.background = "rgba(238,90,36,0.8)"; el.style.display = "block";
+  } else if (window._syncStatus === "syncing") {
+    el.textContent = "⏳ 同步中..."; el.style.background = "rgba(0,0,0,0.5)"; el.style.display = "block";
+  } else {
+    el.style.display = "none";
+  }
+}
+
 function saveData() {
   // 更新当前学生的最后修改时间
   if (gameData.currentStudentId && gameData.students[gameData.currentStudentId]) {
@@ -2198,6 +2222,7 @@ function saveData() {
   
   // GitHub自动同步（防抖，1秒内只同步一次）
   if (ghEnabled) {
+    window._syncStatus = "syncing"; updateSyncStatus();
     clearTimeout(syncTimer);
     syncTimer = setTimeout(() => {
       ghSaveStudents(gameData.students);
@@ -2297,35 +2322,11 @@ function getPetImage(pet) {
 }
 
 // ===== 图片懒加载 =====
-const LAZY_PLACEHOLDER = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect fill='%23e0e0e0' width='200' height='200'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%23999'%3E加载中...%3C/text%3E%3C/svg%3E";
 let lazyObserver = null;
 
-function initLazyLoad() {
-  if ('IntersectionObserver' in window) {
-    lazyObserver = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          const img = entry.target;
-          const src = img.getAttribute('data-src');
-          if (src) {
-            img.src = src;
-            img.removeAttribute('data-src');
-            lazyObserver.unobserve(img);
-          }
-        }
-      });
-    }, { rootMargin: '200px 0px' });
-  }
-}
 
-function observeLazyImages() {
-  if (!lazyObserver) return;
-  document.querySelectorAll('img.lazy-img').forEach(img => {
-    if (img.getAttribute('data-src') && img.src === LAZY_PLACEHOLDER) {
-      lazyObserver.observe(img);
-    }
-  });
-}
+
+
 
 // ===== ELEMENT =====
 function elementMultiplier(atkEl, defEl) {
@@ -2504,6 +2505,9 @@ function enterMain() {
 }
 
 function showLoginScreen() {
+  // 隐藏加载界面
+  const ls = document.getElementById("loadingScreen");
+  if (ls) { ls.style.opacity = "0"; setTimeout(() => ls.remove(), 300); }
   switchLoginTab("login");
   document.getElementById("loginScreen").style.display = "flex";
   document.getElementById("mainScreen").style.display = "none";
@@ -2524,7 +2528,6 @@ function renderMain() {
   calculateAllDecay();
   renderPetDisplay();
   renderPetListBar();
-  observeLazyImages();
 }
 
 function renderPetDisplay() {
@@ -2622,7 +2625,6 @@ function renderPetListBar() {
     html += `<button class="add-pet-btn" onclick="showAdoptModal()">+</button>`;
   }
   bar.innerHTML = html;
-  observeLazyImages();
 }
 
 function switchPet(petId) {
@@ -2674,6 +2676,12 @@ function confirmReleasePet(petId) {
 
 // ===== SKILLS MODAL =====
 function showPetSkillsModal() {
+  const elementChart = `<div style="margin-top:12px;padding:10px;background:#f8f9fa;border-radius:8px;font-size:12px;color:#666;">
+    <b>⚔️ 属性克制关系</b>：
+    🔥火克🌿草 · 🌿草克💧水 · 💧水克🔥火 ·
+    ⚡电克💧水 · ☀️光克🌙暗 · 🌙暗克☀️光
+    <br><span style="color:#888;">克制时伤害×1.5，被克制时伤害×0.75</span>
+  </div>`;
   Sound.click();
   const pet = getCurrentPet();
   if (!pet) { toast("请先领养一只宠物"); Sound.error(); return; }
@@ -2893,7 +2901,8 @@ function useItem(itemKey) {
 }
 
 // ===== LEVEL UP & EVOLUTION =====
-function checkLevelUp(pet) {
+function checkLevelUp(pet, student) {
+  if (!student) student = getCurrentStudent();
   let leveled = false;
   let evoStage = null;
   while (pet.level < MAX_LEVEL) {
@@ -2907,9 +2916,10 @@ function checkLevelUp(pet) {
     if (pet.level === 10) evoStage = "g";
     if (pet.level === 100) evoStage = "u";
     if (pet.level % 5 === 0) {
-      const s = getCurrentStudent();
-      s.inventory.cake = (s.inventory.cake || 0) + 1;
+      const s = student;
+      if (s) { s.inventory.cake = (s.inventory.cake || 0) + 1;
       s.inventory.potion = (s.inventory.potion || 0) + 1;
+      }
     }
   }
   // 满级后清零溢出经验，避免经验堆积
@@ -2969,19 +2979,36 @@ function doSignIn() {
   const s = getCurrentStudent();
   if (!s) return;
   const today = new Date().toDateString();
-  if (s.lastSignIn === today) {
-    const d = getDaily(s);
-    if (!d.signin) {
-      if (!s.signInHistory) s.signInHistory = [];
-      if (!s.signInHistory.includes(today)) s.signInHistory.push(today);
-      recordDaily(s, "signin");
-      saveData();
-      toast("签到状态已同步，任务完成！");
-      Sound.reward();
-    } else {
-      toast("今天已经签到过啦~");
-      Sound.error();
+  const d = getDaily(s);
+  // 统一状态：只要daily.signin为true就算已签到
+  if (d.signin) {
+    toast("今天已经签到过啦~");
+    Sound.error();
+    return;
+  }
+  // 状态不一致修复：lastSignIn是今天但daily没记录，补发奖励
+  if (s.lastSignIn === today && !d.signin) {
+    if (!s.signInHistory) s.signInHistory = [];
+    if (!s.signInHistory.includes(today)) s.signInHistory.push(today);
+    recordDaily(s, "signin");
+    // 补发签到奖励
+    const foodKeys = ["bread", "apple", "cake", "meat"];
+    const rewards = [];
+    for (let i = 0; i < 3; i++) {
+      const k = foodKeys[Math.floor(Math.random() * foodKeys.length)];
+      s.inventory[k] = (s.inventory[k] || 0) + 1;
+      rewards.push(ITEMS[k].emoji + ITEMS[k].name);
     }
+    saveData();
+    Sound.reward();
+    showModal(`
+      <button class="modal-close" onclick="hideModal()">✕</button>
+      <div class="modal-title">📅 签到补领成功！</div>
+      <div style="text-align:center;font-size:40px;margin-bottom:8px;">🎁</div>
+      <div style="text-align:center;font-size:14px;color:#666;margin-bottom:16px;">系统检测到签到状态异常，已补领奖励：${rewards.join("、")}</div>
+      <button class="btn btn-primary" onclick="hideModal()">知道了</button>
+    `);
+    renderMain();
     return;
   }
 
@@ -3020,7 +3047,7 @@ function doSignIn() {
 function buildEnemyPet(type, level, isBoss) {
   const t = PET_TYPES[type] || PET_TYPES.electric_mouse;
   const r = RACE_STATS[type] || { hp: 10, atk: 4, def: 2, spd: 2 };
-  const boost = isBoss ? 1.08 : 0.85;
+  const boost = isBoss ? 1.0 : 0.7;  // 难度优化：普通怪0.7，Boss1.0
   return {
     id: "enemy_" + Date.now(),
     name: isBoss ? ("首领·" + t.name) : t.name,
@@ -3269,6 +3296,16 @@ function quitBattle() {
   toast("已撤退");
 }
 
+
+// 战斗速度控制
+let battleSpeed = 1;
+function toggleBattleSpeed() {
+  battleSpeed = battleSpeed === 1 ? 2 : 1;
+  const btn = document.getElementById("speedBtn");
+  if (btn) btn.textContent = battleSpeed === 2 ? "⏩ 2x" : "⏩ 1x";
+  toast("战斗速度: " + battleSpeed + "倍");
+}
+
 function renderBattle() {
   const bs = battleState;
   if (!bs) return;
@@ -3389,7 +3426,7 @@ function performAttack(from, to, sk, isPlayer, skillIdx) {
   const dEl = document.getElementById(defenderImg);
   aEl.classList.remove("atk-anim"); void aEl.offsetWidth; aEl.classList.add("atk-anim");
   dEl.classList.remove("dmg-anim"); void dEl.offsetWidth; dEl.classList.add("dmg-anim");
-  setTimeout(() => { aEl.classList.remove("atk-anim"); dEl.classList.remove("dmg-anim"); }, 500);
+  setTimeout(() => { aEl.classList.remove("atk-anim"); dEl.classList.remove("dmg-anim"); }, 500 / battleSpeed);
   // 大招特效：攻击方放大发光 + 震屏
   if (skillIdx === 3) {
     aEl.classList.add("ult-cast");
@@ -3397,7 +3434,7 @@ function performAttack(from, to, sk, isPlayer, skillIdx) {
     setTimeout(() => {
       aEl.classList.remove("ult-cast");
       document.getElementById("battleScreen").classList.remove("screen-shake");
-    }, 650);
+    }, 650 / battleSpeed);
   }
 
   // 闪避判定
@@ -3864,7 +3901,18 @@ function endBattle(win) {
     let leveledBefore = pet.level;
     // 延迟结算：等最后一击挥斩-黑屏-裂缝演出完整播放（约2.5秒）后再结算
     setTimeout(() => {
-      checkLevelUp(pet);
+      checkLevelUp(pet, s);
+      // 战斗经验溢出传递给其他宠物
+      let overflow = checkLevelUp.overflow || 0;
+      if (overflow > 0 && s.pets) {
+        for (const otherPet of s.pets) {
+          if (otherPet.id !== pet.id && otherPet.level < MAX_LEVEL && otherPet.status !== "dead") {
+            otherPet.exp += overflow;
+            overflow = checkLevelUp(otherPet, s);
+            if (overflow <= 0) break;
+          }
+        }
+      }
       saveData();
       showModal(`
         <button class="modal-close" onclick="hideModal()">✕</button>
@@ -4197,7 +4245,19 @@ function teacherFeedPet(studentId, petId, itemKey) {
   pet.exp += item.exp;
   pet.lastFedAt = Date.now();
   if (pet.hunger >= 20 && pet.hp > 0) pet.status = "normal";
-  checkLevelUp(pet);
+  checkLevelUp(pet, s);
+  // 喂食经验溢出传递
+  let feedOverflow = 0;
+  if (pet.level >= MAX_LEVEL && pet.exp > 0) { feedOverflow = pet.exp; pet.exp = 0; }
+  if (feedOverflow > 0) {
+    for (const otherPet of s.pets) {
+      if (otherPet.id !== pet.id && otherPet.level < MAX_LEVEL && otherPet.status !== "dead") {
+        otherPet.exp += feedOverflow;
+        feedOverflow = checkLevelUp(otherPet, s);
+        if (feedOverflow <= 0) break;
+      }
+    }
+  }
   saveData();
   Sound.feed();
   toast(`已给 ${pet.name} 喂食 ${item.name}！饱食+${item.hunger}，经验+${item.exp}`);
@@ -4211,7 +4271,7 @@ function teacherHealPet(studentId, petId) {
   if (!pet || pet.status === "dead") { toast("宠物已死亡，请先复活"); Sound.error(); return; }
   pet.hp = Math.min(pet.maxHp, pet.hp + 30);
   pet.exp += 5;
-  checkLevelUp(pet);
+  checkLevelUp(pet, s);
   saveData();
   toast(`已给 ${pet.name} 治疗！血量+30，经验+5`);
   renderTeacherPanel();
@@ -4285,6 +4345,13 @@ function teacherBatchRecover(action) {
 // ===== 二期P0：数据仪表盘 =====
 function renderTeacherDashboard() {
   const students = Object.values(gameData.students);
+  // 异常宠物预警
+  let deadCount = 0, hungryCount = 0, weakCount = 0;
+  students.forEach(s => (s.pets || []).forEach(p => {
+    if (p.status === "dead") deadCount++;
+    else if (p.status === "hungry") hungryCount++;
+    else if (p.status === "weak") weakCount++;
+  }));
   const totalStudents = students.length;
   let totalPets = 0, deadPets = 0, hungryPets = 0, weakPets = 0, healthyPets = 0;
   let ultimatePets = 0, grownPets = 0, babyPets = 0;
@@ -4315,6 +4382,10 @@ function renderTeacherDashboard() {
   const abnormalPets = deadPets + hungryPets + weakPets;
   const winRate = (totalWins + totalLosses) > 0 ? Math.round(totalWins / (totalWins + totalLosses) * 100) : 0;
 
+  const abnormalWarn = (deadCount + hungryCount + weakCount > 0) ? `<div style="background:linear-gradient(135deg,#ff6b6b,#ee5a24);color:white;padding:12px 16px;border-radius:10px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+    <div><b>⚠️ 异常宠物预警</b>：死亡 ${deadCount}只 · 饥饿 ${hungryCount}只 · 虚弱 ${weakCount}只</div>
+    <button class="btn btn-sm" style="background:white;color:#ee5a24;border:none;font-weight:bold;padding:6px 14px;" onclick="teacherBatchRecover('all')">🚑 一键全班恢复</button>
+  </div>` : `<div style="background:linear-gradient(135deg,#00b894,#00cec9);color:white;padding:12px 16px;border-radius:10px;margin-bottom:14px;"><b>✅ 所有宠物状态良好</b></div>`;
   const card = (label, value, color, icon) => `
     <div style="flex:1;min-width:90px;background:${color};border-radius:12px;padding:12px 8px;text-align:center;color:#fff;">
       <div style="font-size:20px;">${icon}</div>
@@ -4663,7 +4734,7 @@ function confirmTeacherReward() {
         if (pet.status === "dead") continue;
         if (pet.level >= MAX_LEVEL) continue;
         pet.exp += remaining;
-        remaining = checkLevelUp(pet);  // 返回满级溢出的经验，传给下一只
+        remaining = checkLevelUp(pet, s);  // 返回满级溢出的经验，传给下一只
       }
     }
     s.unreadRewards = s.unreadRewards || [];
@@ -5283,6 +5354,18 @@ async function initFromGitHub() {
     }
   }
 }
+// 加载进度动画
+let _loadPct = 0;
+const _loadTimer = setInterval(() => {
+  _loadPct += Math.random() * 15 + 5;
+  if (_loadPct >= 90) _loadPct = 90;
+  const bar = document.getElementById("loadingBar");
+  const txt = document.getElementById("loadingText");
+  if (bar) bar.style.width = _loadPct + "%";
+  if (txt) txt.textContent = Math.round(_loadPct) + "%";
+  if (_loadPct >= 90) clearInterval(_loadTimer);
+}, 200);
+
 initFromGitHub();
 
 showLoginScreen();
