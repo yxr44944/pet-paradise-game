@@ -1717,6 +1717,7 @@ body {
         <button class="icon-btn" onclick="showSettings()" title="设置">⚙️</button>
       </div>
     </div>
+    <div id="studentTaskCard"></div>
     <div class="pet-display" id="petDisplay">
       <!-- Pet content rendered by JS -->
     </div>
@@ -2474,7 +2475,9 @@ function doRegister() {
     daily: null,
     achievements: {},
     scores: [],
-    group: (document.getElementById("regGroup") ? document.getElementById("regGroup").value.trim().replace(/[<>&"']/g, "") : "")
+    group: (document.getElementById("regGroup") ? document.getElementById("regGroup").value.trim().replace(/[<>&"']/g, "") : ""),
+    tutorialStep: 0,
+    tutorialDone: false
   };
   gameData.currentStudentId = id;
   saveData();
@@ -2492,6 +2495,163 @@ function logout() {
   showLoginScreen();
 }
 
+
+// ===== 新手引导系统 =====
+const TUTORIAL_STEPS = [
+  { step: 0, title: "👋 欢迎来到宠物乐园！", desc: "我是你的向导小助手，接下来我会带你熟悉游戏。完成所有引导可获得新手大礼包！", action: "开始引导", reward: null },
+  { step: 1, title: "🐾 第一步：领养宠物", desc: "点击下方的「领养」按钮，选择一只你喜欢的宠物吧！", action: "去领养", reward: "完成后获得: 🍎苹果x3" },
+  { step: 2, title: "🍖 第二步：喂食宠物", desc: "宠物会饿肚子哦！点击「喂食」按钮，给你的宠物喂点吃的吧。", action: "去喂食", reward: "完成后获得: 🍰蛋糕x2" },
+  { step: 3, title: "⚔️ 第三步：第一场对战", desc: "点击「对战」按钮，去冒险副本挑战你的第一场战斗吧！新手期有保护哦~", action: "去对战", reward: "完成后获得: 🍖肉x2" },
+  { step: 4, title: "📅 第四步：每日签到", desc: "点击顶部的日历图标签到，每天都能领取食物奖励！", action: "去签到", reward: "完成后获得: 🧪药水x2" },
+  { step: 5, title: "🎉 恭喜完成新手引导！", desc: "你已经掌握了基本玩法！这是你的新手大礼包，祝你在宠物乐园玩得开心！", action: "领取大礼包", reward: "稀有宠物蛋 + 经验x100 + 全部食物x5" }
+];
+
+function showTutorialStep() {
+  const s = getCurrentStudent();
+  if (!s || s.tutorialDone) return;
+  const step = s.tutorialStep || 0;
+  const cfg = TUTORIAL_STEPS[step];
+  if (!cfg) { s.tutorialDone = true; saveData(); return; }
+  
+  let actionBtn = "";
+  if (step === 0) {
+    actionBtn = `<button class="btn btn-primary" style="width:100%;" onclick="advanceTutorial()">${cfg.action}</button>`;
+  } else if (step === 1) {
+    actionBtn = `<button class="btn btn-primary" style="width:100%;" onclick="hideModal();showAdoptModal()">${cfg.action}</button>`;
+  } else if (step === 2) {
+    actionBtn = `<button class="btn btn-primary" style="width:100%;" onclick="hideModal();showInventory()">${cfg.action}</button>`;
+  } else if (step === 3) {
+    actionBtn = `<button class="btn btn-primary" style="width:100%;" onclick="hideModal();showBattleHall()">${cfg.action}</button>`;
+  } else if (step === 4) {
+    actionBtn = `<button class="btn btn-primary" style="width:100%;" onclick="hideModal();doSignIn()">${cfg.action}</button>`;
+  } else if (step === 5) {
+    actionBtn = `<button class="btn btn-primary" style="width:100%;" onclick="claimTutorialReward()">🎁 ${cfg.action}</button>`;
+  }
+  
+  showModal(`
+    <button class="modal-close" onclick="hideModal();getCurrentStudent().tutorialStep=${step};saveData();">✕</button>
+    <div class="modal-title">${cfg.title}</div>
+    <div style="text-align:center;font-size:40px;margin:12px 0;">${step === 5 ? "🏆" : "📖"}</div>
+    <div style="text-align:center;font-size:14px;color:#555;margin-bottom:12px;line-height:1.6;">${cfg.desc}</div>
+    ${cfg.reward ? `<div style="text-align:center;font-size:12px;color:#FF8C42;margin-bottom:12px;">${cfg.reward}</div>` : ""}
+    <div style="text-align:center;font-size:11px;color:#aaa;margin-bottom:12px;">引导进度: ${step}/5</div>
+    ${actionBtn}
+    ${step > 0 && step < 5 ? `<button class="btn btn-secondary" style="width:100%;margin-top:8px;font-size:12px;" onclick="skipTutorial()">跳过引导</button>` : ""}
+  `);
+}
+
+function advanceTutorial() {
+  const s = getCurrentStudent();
+  if (!s) return;
+  s.tutorialStep = (s.tutorialStep || 0) + 1;
+  saveData();
+  hideModal();
+  if (s.tutorialStep < 6) {
+    setTimeout(() => showTutorialStep(), 300);
+  }
+}
+
+function skipTutorial() {
+  const s = getCurrentStudent();
+  if (!s) return;
+  s.tutorialDone = true;
+  s.tutorialStep = 6;
+  saveData();
+  hideModal();
+  toast("已跳过新手引导");
+}
+
+function checkTutorial() {
+  const s = getCurrentStudent();
+  if (!s || s.tutorialDone) return;
+  const step = s.tutorialStep || 0;
+  // 检查是否完成了当前步骤的条件
+  if (step === 1 && s.pets.length > 0) {
+    // 领养完成
+    s.tutorialStep = 2;
+    s.inventory.apple = (s.inventory.apple || 0) + 3;
+    saveData();
+    toast("🎉 引导完成：领养宠物！获得 🍎苹果x3");
+    Sound.reward();
+    setTimeout(() => showTutorialStep(), 800);
+  } else if (step <= 5) {
+    showTutorialStep();
+  }
+}
+
+// 在喂食后检查引导
+function checkTutorialAfterFeed() {
+  const s = getCurrentStudent();
+  if (!s || s.tutorialDone) return;
+  if (s.tutorialStep === 2) {
+    s.tutorialStep = 3;
+    s.inventory.cake = (s.inventory.cake || 0) + 2;
+    saveData();
+    toast("🎉 引导完成：喂食宠物！获得 🍰蛋糕x2");
+    Sound.reward();
+    setTimeout(() => showTutorialStep(), 800);
+  }
+}
+
+// 在对战胜利后检查引导
+function checkTutorialAfterBattle() {
+  const s = getCurrentStudent();
+  if (!s || s.tutorialDone) return;
+  if (s.tutorialStep === 3) {
+    s.tutorialStep = 4;
+    s.inventory.meat = (s.inventory.meat || 0) + 2;
+    saveData();
+    toast("🎉 引导完成：首场对战！获得 🍖肉x2");
+    Sound.reward();
+  }
+}
+
+// 在签到后检查引导
+function checkTutorialAfterSignIn() {
+  const s = getCurrentStudent();
+  if (!s || s.tutorialDone) return;
+  if (s.tutorialStep === 4) {
+    s.tutorialStep = 5;
+    s.inventory.potion = (s.inventory.potion || 0) + 2;
+    saveData();
+    toast("🎉 引导完成：每日签到！获得 🧪药水x2");
+    Sound.reward();
+    setTimeout(() => showTutorialStep(), 800);
+  }
+}
+
+function claimTutorialReward() {
+  const s = getCurrentStudent();
+  if (!s || s.tutorialDone) return;
+  // 新手大礼包
+  s.inventory.bread = (s.inventory.bread || 0) + 5;
+  s.inventory.apple = (s.inventory.apple || 0) + 5;
+  s.inventory.cake = (s.inventory.cake || 0) + 5;
+  s.inventory.meat = (s.inventory.meat || 0) + 5;
+  s.inventory.potion = (s.inventory.potion || 0) + 3;
+  s.inventory.revive = (s.inventory.revive || 0) + 2;
+  // 经验给当前宠物
+  const pet = getCurrentPet();
+  if (pet) {
+    pet.exp += 100;
+    checkLevelUp(pet, s);
+  }
+  s.tutorialDone = true;
+  s.tutorialStep = 6;
+  saveData();
+  Sound.reward();
+  showModal(`
+    <button class="modal-close" onclick="hideModal()">✕</button>
+    <div class="modal-title" style="color:#FFD700;">🎁 新手大礼包！</div>
+    <div style="text-align:center;font-size:48px;margin:16px 0;">🏆</div>
+    <div style="text-align:center;font-size:14px;color:#555;margin-bottom:8px;">恭喜完成新手引导！</div>
+    <div style="background:#f8f9fc;padding:12px;border-radius:8px;margin-bottom:16px;font-size:13px;color:#666;">
+      🍞面包x5 🍎苹果x5 🍰蛋糕x5 🍖肉x5 🧪药水x3 💊复活药x2 ⭐经验x100
+    </div>
+    <button class="btn btn-primary" style="width:100%;" onclick="hideModal();renderMain();">开始冒险！</button>
+  `);
+}
+
 function enterMain() {
   calculateAllDecay();
   document.getElementById("loginScreen").style.display = "none";
@@ -2502,6 +2662,14 @@ function enterMain() {
   Sound.startBGM();
   renderMain();
   checkUnreadRewards();
+  // 新手引导检查
+  if (!s.tutorialDone && s.pets.length > 0) {
+    setTimeout(() => checkTutorial(), 500);
+  } else if (!s.tutorialDone && s.pets.length === 0) {
+    // 还没领养宠物，显示引导第一步
+    s.tutorialStep = 0;
+    setTimeout(() => showTutorialStep(), 500);
+  }
 }
 
 function showLoginScreen() {
@@ -2526,6 +2694,9 @@ function renderLoginPets() {
 // ===== MAIN RENDER =====
 function renderMain() {
   calculateAllDecay();
+  // 课堂任务卡片
+  const taskCard = document.getElementById("studentTaskCard");
+  if (taskCard) taskCard.innerHTML = renderStudentTasks();
   renderPetDisplay();
   renderPetListBar();
 }
@@ -2596,6 +2767,7 @@ function renderPetDisplay() {
       <button class="btn btn-secondary" onclick="showPetSkillsModal()">✨ 技能</button>
       <button class="btn btn-battle" onclick="showBattleHall()">⚔️ 对战</button>
       <button class="btn btn-secondary" onclick="showAdoptModal()">➕ 领养</button>
+      <button class="btn btn-secondary" onclick="showRedeemModal()">🎟️ 兑换</button>
     </div>
     <div style="text-align:center;margin-top:10px;">
       <button class="btn btn-sm" style="background:#fff0f0;color:#e74c3c;border:1px solid #ffcccc;font-size:12px;padding:4px 12px;" onclick="releasePet('${pet.id}')">🗑️ 放生这只宠物</button>
@@ -2870,6 +3042,8 @@ function useItem(itemKey) {
     toast(`${pet.name} 复活了！🎉`);
     hideModal();
     renderMain();
+    checkTutorialAfterSignIn();
+    updateTaskProgress("signin", 1);
     return;
   }
 
@@ -2902,6 +3076,7 @@ function useItem(itemKey) {
 
 // ===== LEVEL UP & EVOLUTION =====
 function checkLevelUp(pet, student) {
+  const _oldLevel = pet.level;
   if (!student) student = getCurrentStudent();
   let leveled = false;
   let evoStage = null;
@@ -3041,13 +3216,27 @@ function doSignIn() {
   renderMain();
 }
 
+
+// 等级追赶机制：低等级获得经验加成
+function getExpMultiplier(level) {
+  if (level <= 10) return 3.0;   // Lv.1-10 经验×3
+  if (level <= 30) return 2.0;   // Lv.11-30 经验×2
+  if (level <= 60) return 1.5;   // Lv.31-60 经验×1.5
+  return 1.0;                     // Lv.61+ 正常
+}
+
 // ===== BATTLE SYSTEM =====
 
 // 构建敌方宠物（冒险模式）
 function buildEnemyPet(type, level, isBoss) {
   const t = PET_TYPES[type] || PET_TYPES.electric_mouse;
   const r = RACE_STATS[type] || { hp: 10, atk: 4, def: 2, spd: 2 };
-  const boost = isBoss ? 1.0 : 0.7;  // 难度优化：普通怪0.7，Boss1.0
+  let boost = isBoss ? 1.0 : 0.7;  // 难度优化：普通怪0.7，Boss1.0
+  // 首胜保护：前3场胜利前敌方属性降低50%
+  const _stu = getCurrentStudent();
+  if (_stu && (_stu.wins || 0) < 3) {
+    boost *= 0.5;
+  }
   return {
     id: "enemy_" + Date.now(),
     name: isBoss ? ("首领·" + t.name) : t.name,
@@ -3879,11 +4068,13 @@ function endBattle(win) {
       streakBonus = Math.min(streak, 10) * 5;
       if (streak >= 2) streakHtml = `<div style="text-align:center;font-size:14px;color:#FF8C42;margin-bottom:4px;">🔥 ${streak} 连胜！经验加成 +${streakBonus}%</div>`;
     }
-    const expGain = Math.round((isBoss ? baseExp * 2 : baseExp) * (1 + streakBonus / 100));
+    const expMult = getExpMultiplier(pet.level);
+    const expGain = Math.round((isBoss ? baseExp * 2 : baseExp) * (1 + streakBonus / 100) * expMult);
     pet.exp += expGain;
     pet.wins = (pet.wins || 0) + 1;
     s.battleWins = (s.battleWins || 0) + 1;
     // 冒险进度推进
+    updateTaskProgress("dungeon", 1);
     if (battleMode === "adventure" && adventureSel) {
       const expectIdx = adventureSel.zoneIdx * ZONE_SLOTS + adventureSel.slotIdx;
       if ((s.adventureProgress || 0) === expectIdx) s.adventureProgress++;
@@ -3898,6 +4089,9 @@ function endBattle(win) {
     }
     recordDaily(s, "battle");
     checkAchievements(s);
+    checkTutorialAfterBattle();
+    updateTaskProgress("battle", 1);
+    if (win) updateTaskProgress("wins", 1);
     let leveledBefore = pet.level;
     // 延迟结算：等最后一击挥斩-黑屏-裂缝演出完整播放（约2.5秒）后再结算
     setTimeout(() => {
@@ -3919,7 +4113,7 @@ function endBattle(win) {
         <div class="modal-title" style="color:#2E9E4F;">🎉 胜利！</div>
         <div style="text-align:center;font-size:52px;margin-bottom:10px;">🏆</div>
         <div style="text-align:center;font-size:15px;margin-bottom:6px;">${bs.my.name} 战胜了 ${bs.en.name}！</div>
-        <div style="text-align:center;font-size:14px;color:#666;margin-bottom:4px;">经验 +${expGain}${itemText}</div>
+        <div style="text-align:center;font-size:14px;color:#666;margin-bottom:4px;">经验 +${expGain}${expMult > 1 ? " (低等级加成×" + expMult + ")" : ""}${itemText}</div>
         ${streakHtml}
         ${pet.level > leveledBefore ? `<div style="text-align:center;font-size:14px;color:#FF6B6B;margin-bottom:4px;">✨ ${pet.name} 升级到 Lv.${pet.level}！</div>` : ''}
         <div style="text-align:center;font-size:12px;color:#999;margin-bottom:14px;">宠物当前血量：${Math.max(0, Math.round(pet.hp))}/${pet.maxHp}</div>
@@ -4098,6 +4292,8 @@ function renderTeacherPanel() {
     { key: "deduct", label: "🗑️ 扣除管理" },
     { key: "rank", label: "🏆 排行榜" },
     { key: "score", label: "📝 评分评语" },
+    { key: "tasks", label: "📋 课堂任务" },
+    { key: "redeem", label: "🎟️ 兑换码" },
     { key: "data", label: "数据管理" }
   ];
   let content = "";
@@ -4108,6 +4304,8 @@ function renderTeacherPanel() {
   else if (teacherTab === "deduct") content = renderTeacherDeduct();
   else if (teacherTab === "rank") content = renderTeacherRank();
   else if (teacherTab === "score") content = renderTeacherScore();
+  else if (teacherTab === "tasks") content = renderTeacherTasks();
+  else if (teacherTab === "redeem") content = renderTeacherRedeemCodes();
   else if (teacherTab === "data") content = renderTeacherData();
 
   showModal(`
@@ -4900,6 +5098,373 @@ function confirmTeacherDeletePet(sid, petId) {
   toast(`已删除 ${s.name} 的宠物 ${pet.name}`);
   Sound.error();
   renderTeacherPanel();
+}
+
+
+// ===== 兑换码系统 =====
+
+// ===== 课堂任务系统 =====
+const TASK_TYPES = {
+  battle: { label: "对战N场", icon: "⚔️" },
+  wins: { label: "获得N胜场", icon: "🏆" },
+  level: { label: "宠物升到N级", icon: "⬆️" },
+  signin: { label: "签到", icon: "📅" },
+  dungeon: { label: "副本通关N次", icon: "🗺️" }
+};
+
+function renderTeacherTasks() {
+  const tasks = gameData.classTasks || [];
+  const students = Object.values(gameData.students);
+  
+  let listHtml = "";
+  if (tasks.length === 0) {
+    listHtml = '<div style="text-align:center;color:#999;padding:20px;">暂无课堂任务</div>';
+  } else {
+    listHtml = '<div class="teacher-student-list">' + tasks.map((t, i) => {
+      const typeCfg = TASK_TYPES[t.type] || TASK_TYPES.battle;
+      const completed = students.filter(s => (t.progress && t.progress[s.name] && t.progress[s.name].claimed)).length;
+      const inProgress = students.filter(s => (t.progress && t.progress[s.name] && !t.progress[s.name].claimed)).length;
+      const expired = t.deadline && new Date(t.deadline) < new Date();
+      return `<div class="teacher-student-item">
+        <div class="avatar" style="background:linear-gradient(135deg,#667eea,#764ba2);">${typeCfg.icon}</div>
+        <div class="info">
+          <div class="name">${t.title} ${expired?'<span style="color:#999;font-size:11px;">(已截止)</span>':''}</div>
+          <div class="meta">${typeCfg.label.replace('N', t.target)} · 奖励: 经验${t.exp}+${Object.entries(t.items||{}).map(([k,q])=>(ITEMS[k]?ITEMS[k].emoji:'?')+'x'+q).join('')} · 完成${completed}/${students.length}人</div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-secondary btn-sm" onclick="viewTaskProgress(${i})">进度</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteClassTask(${i})">删除</button>
+        </div>
+      </div>`;
+    }).join("") + '</div>';
+  }
+  
+  const typeOptions = Object.entries(TASK_TYPES).map(([k,v]) => `<option value="${k}">${v.icon} ${v.label}</option>`).join("");
+  
+  return `<div style="margin-bottom:16px;">
+    <div style="background:#f8f9fc;padding:14px;border-radius:10px;margin-bottom:14px;">
+      <div style="font-weight:600;margin-bottom:10px;">➕ 发布课堂任务</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+        <input type="text" id="newTaskTitle" placeholder="任务标题(如:今日对战练习)" style="flex:1;min-width:150px;padding:8px;border:1px solid #ddd;border-radius:6px;">
+        <select id="newTaskType" style="padding:8px;border:1px solid #ddd;border-radius:6px;">${typeOptions}</select>
+        <input type="number" id="newTaskTarget" placeholder="目标数量" value="3" style="width:90px;padding:8px;border:1px solid #ddd;border-radius:6px;">
+        <input type="number" id="newTaskExp" placeholder="经验奖励" value="50" style="width:90px;padding:8px;border:1px solid #ddd;border-radius:6px;">
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+        ${Object.entries(ITEMS).filter(([k,v])=>v.type==='food').map(([k,v])=>`<label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;"><input type="checkbox" class="task-item" value="${k}"> ${v.emoji}${v.name} <input type="number" class="task-item-qty" data-key="${k}" value="1" style="width:40px;padding:2px;border:1px solid #ddd;border-radius:4px;text-align:center;"></label>`).join("")}
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+        <label style="font-size:12px;color:#666;">截止时间:</label>
+        <input type="date" id="newTaskDeadline" style="padding:6px;border:1px solid #ddd;border-radius:6px;">
+        <label style="font-size:12px;color:#666;"><input type="checkbox" id="newTaskAll" checked> 发布给全班</label>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="createClassTask()">发布任务</button>
+    </div>
+    <div style="font-weight:600;margin-bottom:8px;">📋 已发布任务 (${tasks.length})</div>
+    ${listHtml}
+  </div>`;
+}
+
+function createClassTask() {
+  const title = document.getElementById("newTaskTitle").value.trim();
+  const type = document.getElementById("newTaskType").value;
+  const target = parseInt(document.getElementById("newTaskTarget").value) || 1;
+  const exp = parseInt(document.getElementById("newTaskExp").value) || 0;
+  const deadline = document.getElementById("newTaskDeadline").value;
+  const toAll = document.getElementById("newTaskAll").checked;
+  
+  if (!title) { toast("请输入任务标题"); Sound.error(); return; }
+  
+  const items = {};
+  document.querySelectorAll(".task-item:checked").forEach(cb => {
+    const key = cb.value;
+    const qty = parseInt(document.querySelector(`.task-item-qty[data-key="${key}"]`).value) || 1;
+    items[key] = qty;
+  });
+  
+  if (exp === 0 && Object.keys(items).length === 0) { toast("请设置至少一种奖励"); Sound.error(); return; }
+  
+  if (!gameData.classTasks) gameData.classTasks = [];
+  gameData.classTasks.push({
+    id: "task_" + Date.now(),
+    title, type, target, exp, items,
+    deadline: deadline ? new Date(deadline).getTime() : null,
+    toAll,
+    progress: {},
+    createdAt: Date.now()
+  });
+  saveData();
+  addTeacherLog("发布课堂任务", title);
+  toast("任务发布成功！");
+  Sound.reward();
+  renderTeacherPanel();
+}
+
+function deleteClassTask(index) {
+  if (!confirm("确定删除这个任务吗？学生将无法领取奖励。")) return;
+  const title = gameData.classTasks[index].title;
+  gameData.classTasks.splice(index, 1);
+  saveData();
+  addTeacherLog("删除课堂任务", title);
+  toast("已删除");
+  renderTeacherPanel();
+}
+
+function viewTaskProgress(index) {
+  const t = gameData.classTasks[index];
+  const students = Object.values(gameData.students);
+  const typeCfg = TASK_TYPES[t.type] || TASK_TYPES.battle;
+  
+  let rows = students.map(s => {
+    const p = t.progress && t.progress[s.name] ? t.progress[s.name] : { current: 0, claimed: false };
+    const pct = Math.min(100, Math.round(p.current / t.target * 100));
+    const status = p.claimed ? "✅已领取" : (p.current >= t.target ? "🎁可领取" : "⏳进行中");
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f0f0f0;">
+      <div style="width:60px;font-size:13px;">${s.name}</div>
+      <div style="flex:1;height:8px;background:#eee;border-radius:4px;overflow:hidden;">
+        <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#667eea,#764ba2);"></div>
+      </div>
+      <div style="width:50px;text-align:right;font-size:12px;color:#666;">${p.current}/${t.target}</div>
+      <div style="width:60px;text-align:right;font-size:12px;">${status}</div>
+    </div>`;
+  }).join("");
+  
+  showModal(`
+    <button class="modal-close" onclick="hideModal()">✕</button>
+    <div class="modal-title">📊 ${t.title} - 完成进度</div>
+    <div style="font-size:12px;color:#999;margin-bottom:12px;">${typeCfg.label.replace('N', t.target)}</div>
+    <div style="max-height:400px;overflow-y:auto;">${rows}</div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:12px;" onclick="hideModal();renderTeacherPanel();">返回</button>
+  `);
+}
+
+// 学生端：更新任务进度
+function updateTaskProgress(type, amount) {
+  const s = getCurrentStudent();
+  if (!s || !gameData.classTasks) return;
+  const now = Date.now();
+  
+  gameData.classTasks.forEach(t => {
+    if (t.type !== type) return;
+    if (t.deadline && t.deadline < now) return;
+    if (!t.toAll && (!t.assignedTo || !t.assignedTo.includes(s.name))) return;
+    if (!t.progress) t.progress = {};
+    if (!t.progress[s.name]) t.progress[s.name] = { current: 0, claimed: false };
+    if (t.progress[s.name].claimed) return;
+    
+    t.progress[s.name].current += amount;
+    if (t.progress[s.name].current >= t.target && !t.progress[s.name].notified) {
+      t.progress[s.name].notified = true;
+      setTimeout(() => toast(`🎉 任务「${t.title}」已完成，快去领取奖励！`), 500);
+      Sound.reward();
+    }
+  });
+  saveData();
+}
+
+// 学生端：显示课堂任务
+function renderStudentTasks() {
+  const s = getCurrentStudent();
+  if (!s || !gameData.classTasks || gameData.classTasks.length === 0) return "";
+  const now = Date.now();
+  
+  const myTasks = gameData.classTasks.filter(t => {
+    if (t.deadline && t.deadline < now) return false;
+    if (!t.toAll && (!t.assignedTo || !t.assignedTo.includes(s.name))) return false;
+    return true;
+  });
+  
+  if (myTasks.length === 0) return "";
+  
+  return `<div style="margin:12px 16px;padding:12px;background:linear-gradient(135deg,#667eea15,#764ba215);border-radius:10px;border:1px solid #667eea30;">
+    <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:#4a4a6a;">📋 课堂任务</div>
+    ${myTasks.map(t => {
+      const p = t.progress && t.progress[s.name] ? t.progress[s.name] : { current: 0, claimed: false };
+      const pct = Math.min(100, Math.round(p.current / t.target * 100));
+      const canClaim = p.current >= t.target && !p.claimed;
+      const typeCfg = TASK_TYPES[t.type] || TASK_TYPES.battle;
+      return `<div style="margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
+          <span>${typeCfg.icon} ${t.title}</span>
+          <span style="color:#666;">${p.current}/${t.target}</span>
+        </div>
+        <div style="height:6px;background:#e0e0e0;border-radius:3px;overflow:hidden;">
+          <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#667eea,#764ba2);transition:width 0.3s;"></div>
+        </div>
+        ${canClaim ? `<button class="btn btn-primary btn-sm" style="width:100%;margin-top:6px;padding:4px;font-size:12px;" onclick="claimTaskReward('${t.id}')">🎁 领取奖励</button>` : ''}
+        ${p.claimed ? '<div style="text-align:center;font-size:11px;color:#52c41a;margin-top:4px;">✅ 已领取</div>' : ''}
+      </div>`;
+    }).join("")}
+  </div>`;
+}
+
+function claimTaskReward(taskId) {
+  const s = getCurrentStudent();
+  if (!s || !gameData.classTasks) return;
+  const t = gameData.classTasks.find(x => x.id === taskId);
+  if (!t) return;
+  if (!t.progress || !t.progress[s.name] || t.progress[s.name].claimed) return;
+  if (t.progress[s.name].current < t.target) { toast("任务还未完成"); return; }
+  
+  // 发放奖励
+  if (t.exp > 0) {
+    const pet = getCurrentPet();
+    if (pet) {
+      pet.exp += t.exp;
+      checkLevelUp(pet, s);
+    }
+  }
+  let rewardText = [];
+  if (t.exp > 0) rewardText.push("经验+" + t.exp);
+  Object.entries(t.items || {}).forEach(([k, q]) => {
+    s.inventory[k] = (s.inventory[k] || 0) + q;
+    if (ITEMS[k]) rewardText.push(ITEMS[k].emoji + ITEMS[k].name + "x" + q);
+  });
+  
+  t.progress[s.name].claimed = true;
+  saveData();
+  Sound.reward();
+  showModal(`
+    <button class="modal-close" onclick="hideModal()">✕</button>
+    <div class="modal-title" style="color:#2E9E4F;">🎉 任务完成！</div>
+    <div style="text-align:center;font-size:40px;margin:16px 0;">🏆</div>
+    <div style="text-align:center;font-size:14px;color:#555;margin-bottom:8px;">「${t.title}」</div>
+    <div style="text-align:center;font-size:14px;color:#666;margin-bottom:16px;">获得: ${rewardText.join("、")}</div>
+    <button class="btn btn-primary" style="width:100%;" onclick="hideModal();renderMain();">太棒了</button>
+  `);
+}
+
+function renderTeacherRedeemCodes() {
+  const codes = gameData.redeemCodes || [];
+  let listHtml = "";
+  if (codes.length === 0) {
+    listHtml = '<div style="text-align:center;color:#999;padding:20px;">暂无兑换码，点击下方创建</div>';
+  } else {
+    listHtml = '<div class="teacher-student-list">' + codes.map((c, i) => {
+      const usedCount = (c.usedBy || []).length;
+      const rewardText = (c.exp ? "经验+" + c.exp + " " : "") +
+        Object.entries(c.items || {}).map(([k,q]) => (ITEMS[k]?ITEMS[k].emoji:"?") + "x" + q).join(" ");
+      const expired = c.expires && new Date(c.expires) < new Date();
+      return `<div class="teacher-student-item">
+        <div class="avatar" style="background:linear-gradient(135deg,#f093fb,#f5576c);">🎟️</div>
+        <div class="info">
+          <div class="name"><code style="background:#f0f0f0;padding:2px 6px;border-radius:4px;font-size:14px;">${c.code}</code> ${expired?'<span style="color:#999;font-size:11px;">(已过期)</span>':''}</div>
+          <div class="meta">奖励: ${rewardText || "无"} · 已用 ${usedCount}/${c.maxUses || "无限"} ${c.expires ? '· 截止 ' + new Date(c.expires).toLocaleDateString() : ''}</div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-secondary btn-sm" onclick="copyRedeemCode('${c.code}')">复制</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteRedeemCode(${i})">删除</button>
+        </div>
+      </div>`;
+    }).join("") + '</div>';
+  }
+  return `<div style="margin-bottom:16px;">
+    <div style="background:#f8f9fc;padding:14px;border-radius:10px;margin-bottom:14px;">
+      <div style="font-weight:600;margin-bottom:10px;">➕ 创建兑换码</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+        <input type="text" id="newRedeemCode" placeholder="兑换码(如 CODE2026)" style="flex:1;min-width:120px;padding:8px;border:1px solid #ddd;border-radius:6px;">
+        <input type="number" id="newRedeemExp" placeholder="经验值" style="width:90px;padding:8px;border:1px solid #ddd;border-radius:6px;">
+        <input type="number" id="newRedeemMax" placeholder="最大次数(空=无限)" style="width:120px;padding:8px;border:1px solid #ddd;border-radius:6px;">
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+        ${Object.entries(ITEMS).filter(([k,v])=>v.type==='food').map(([k,v])=>`<label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;"><input type="checkbox" class="redeem-item" value="${k}"> ${v.emoji}${v.name} <input type="number" class="redeem-item-qty" data-key="${k}" value="1" style="width:40px;padding:2px;border:1px solid #ddd;border-radius:4px;text-align:center;"></label>`).join("")}
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="createRedeemCode()">创建兑换码</button>
+    </div>
+    <div style="font-weight:600;margin-bottom:8px;">📋 已有兑换码 (${codes.length})</div>
+    ${listHtml}
+  </div>`;
+}
+
+function createRedeemCode() {
+  const code = document.getElementById("newRedeemCode").value.trim().toUpperCase();
+  const exp = parseInt(document.getElementById("newRedeemExp").value) || 0;
+  const maxUses = parseInt(document.getElementById("newRedeemMax").value) || 0;
+  if (!code) { toast("请输入兑换码"); Sound.error(); return; }
+  if ((gameData.redeemCodes || []).find(c => c.code === code)) { toast("兑换码已存在"); Sound.error(); return; }
+  const items = {};
+  document.querySelectorAll(".redeem-item:checked").forEach(cb => {
+    const key = cb.value;
+    const qty = parseInt(document.querySelector(`.redeem-item-qty[data-key="${key}"]`).value) || 1;
+    items[key] = qty;
+  });
+  if (exp === 0 && Object.keys(items).length === 0) { toast("请设置至少一种奖励"); Sound.error(); return; }
+  if (!gameData.redeemCodes) gameData.redeemCodes = [];
+  if (!gameData.classTasks) gameData.classTasks = [];
+  gameData.redeemCodes.push({ code, exp, items, maxUses: maxUses || null, usedBy: [], createdAt: Date.now() });
+  saveData();
+  addTeacherLog("创建兑换码", code);
+  toast("兑换码创建成功！");
+  Sound.reward();
+  renderTeacherPanel();
+}
+
+function deleteRedeemCode(index) {
+  if (!confirm("确定删除这个兑换码吗？")) return;
+  const code = gameData.redeemCodes[index].code;
+  gameData.redeemCodes.splice(index, 1);
+  saveData();
+  addTeacherLog("删除兑换码", code);
+  toast("已删除");
+  renderTeacherPanel();
+}
+
+function copyRedeemCode(code) {
+  navigator.clipboard.writeText(code).then(() => toast("已复制: " + code)).catch(() => {
+    prompt("复制以下兑换码:", code);
+  });
+}
+
+// 学生端兑换
+function showRedeemModal() {
+  Sound.click();
+  showModal(`
+    <button class="modal-close" onclick="hideModal()">✕</button>
+    <div class="modal-title">🎟️ 兑换码</div>
+    <div style="text-align:center;margin-bottom:16px;">
+      <div style="font-size:40px;margin-bottom:8px;">🎁</div>
+      <div style="color:#666;font-size:13px;">输入老师给的兑换码领取奖励</div>
+    </div>
+    <input type="text" id="redeemInput" placeholder="请输入兑换码" style="width:100%;padding:12px;border:2px solid #e0e0e0;border-radius:10px;font-size:16px;text-align:center;letter-spacing:2px;margin-bottom:12px;" onkeypress="if(event.key==='Enter')doRedeem()">
+    <button class="btn btn-primary" style="width:100%;" onclick="doRedeem()">立即兑换</button>
+  `);
+  setTimeout(() => document.getElementById("redeemInput").focus(), 100);
+}
+
+function doRedeem() {
+  const code = document.getElementById("redeemInput").value.trim().toUpperCase();
+  if (!code) { toast("请输入兑换码"); Sound.error(); return; }
+  const s = getCurrentStudent();
+  const rc = (gameData.redeemCodes || []).find(c => c.code === code);
+  if (!rc) { toast("兑换码不存在"); Sound.error(); return; }
+  if (rc.usedBy && rc.usedBy.includes(s.name)) { toast("你已经兑换过这个码了"); Sound.error(); return; }
+  if (rc.maxUses && (rc.usedBy || []).length >= rc.maxUses) { toast("兑换码已达使用上限"); Sound.error(); return; }
+  if (rc.expires && new Date(rc.expires) < new Date()) { toast("兑换码已过期"); Sound.error(); return; }
+  // 发放奖励
+  if (rc.exp > 0) {
+    const pet = getCurrentPet();
+    if (pet) {
+      pet.exp += rc.exp;
+      checkLevelUp(pet, s);
+    }
+  }
+  let rewardText = [];
+  if (rc.exp > 0) rewardText.push("经验+" + rc.exp);
+  Object.entries(rc.items || {}).forEach(([k, q]) => {
+    s.inventory[k] = (s.inventory[k] || 0) + q;
+    if (ITEMS[k]) rewardText.push(ITEMS[k].emoji + ITEMS[k].name + "x" + q);
+  });
+  if (!rc.usedBy) rc.usedBy = [];
+  rc.usedBy.push(s.name);
+  saveData();
+  Sound.reward();
+  showModal(`
+    <button class="modal-close" onclick="hideModal()">✕</button>
+    <div class="modal-title" style="color:#2E9E4F;">🎉 兑换成功！</div>
+    <div style="text-align:center;font-size:40px;margin:16px 0;">🎁</div>
+    <div style="text-align:center;font-size:14px;color:#666;margin-bottom:16px;">获得: ${rewardText.join("、")}</div>
+    <button class="btn btn-primary" onclick="hideModal();renderMain();">太棒了</button>
+  `);
 }
 
 function renderTeacherData() {
