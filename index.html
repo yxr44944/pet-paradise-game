@@ -2402,17 +2402,24 @@ function renderStudentList() {
     sel.innerHTML = '<option value="">暂无学生</option>';
     return;
   }
+  const nameCount = {};
+  ids.forEach(id => { const nm = gameData.students[id].name; nameCount[nm] = (nameCount[nm] || 0) + 1; });
+  const dispName = (sid) => {
+    const st = gameData.students[sid];
+    if (nameCount[st.name] > 1) return st.group ? st.name + "（" + st.group + "）" : st.name + "（" + sid.slice(-5) + "）";
+    return st.name;
+  };
   list.innerHTML = ids.map(id => {
     const s = gameData.students[id];
     return `<div class="student-item" onclick="selectStudent('${id}')">
       <div class="avatar">${s.name.charAt(0)}</div>
       <div class="info">
-        <div class="name">${s.name}</div>
+        <div class="name">${dispName(id)}</div>
         <div class="meta">${s.pets.length} 只宠物 · 最高 Lv.${Math.max(0,...s.pets.map(p=>p.level))} · 胜 ${s.battleWins||0} 场</div>
       </div>
     </div>`;
   }).join("");
-  sel.innerHTML = ids.map(id => `<option value="${id}">${gameData.students[id].name}</option>`).join("");
+  sel.innerHTML = ids.map(id => `<option value="${id}">${dispName(id)}</option>`).join("");
 }
 
 function selectStudent(id) {
@@ -2455,8 +2462,7 @@ function doRegister() {
   if (name.length > 10) { toast("名字不超过10个字"); Sound.error(); return; }
   if (!/^\d{4}$/.test(pwd)) { toast("密码必须是4位数字"); Sound.error(); return; }
   if (pwd !== pwd2) { toast("两次密码不一致"); Sound.error(); return; }
-  const exists = Object.values(gameData.students).find(s => s.name === name);
-  if (exists) { toast("该名字已被注册"); Sound.error(); return; }
+  // 允许同名注册（账号按唯一ID区分，同名登录显示班级/尾号）
 
   const id = genId();
   const now = Date.now();
