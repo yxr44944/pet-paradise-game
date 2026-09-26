@@ -4358,6 +4358,7 @@ function renderTeacherStudents() {
       <div class="actions">
         <button class="btn btn-secondary btn-sm" onclick="teacherSetGroup('${id}')">班级</button>
         <button class="btn btn-warning btn-sm" onclick="teacherResetPwd('${id}')">重置密码</button>
+        <button class="btn btn-danger btn-sm" onclick="teacherDeleteStudent('${id}')">删除</button>
       </div>
     </div>`;
   }).join("") + `</div>`;
@@ -4382,6 +4383,23 @@ function teacherSetGroup(id) {
   s.group = g.trim().replace(/[<>&"']/g, "").slice(0, 10);
   saveData();
   toast(`${s.name} 的班级已更新为「${s.group || "未分组"}」`);
+  renderTeacherPanel();
+}
+
+// 删除学生账号（二次确认，本地+云端永久删除）
+function teacherDeleteStudent(id) {
+  Sound.click();
+  const s = gameData.students[id];
+  if (!s) return;
+  const petInfo = s.pets.length ? s.pets.length + "只宠物" : "无宠物";
+  if (!confirm(`确定要删除学生「${s.name}」吗？\n\n该账号包含 ${petInfo}、战绩 ${s.battleWins||0}胜${s.battleLosses||0}负及背包物品。\n删除后数据将永久消失，无法恢复！`)) return;
+  if (!confirm(`请再次确认：永久删除「${s.name}」的账号？\n点击“确定”立即删除，不可撤销！`)) return;
+  // 若删除的正是当前登录学生，清除登录态
+  if (gameData.currentStudentId === id) gameData.currentStudentId = null;
+  delete gameData.students[id];
+  addTeacherLog("删除学生", `删除账号「${s.name}」（${petInfo}，原${s.battleWins||0}胜${s.battleLosses||0}负）`);
+  saveData();
+  toast(`已永久删除学生 ${s.name}`);
   renderTeacherPanel();
 }
 
