@@ -14,6 +14,7 @@ const GH_CONFIG = {
   branch: "main"
 };
 let ghEnabled = true;
+let ghInitDone = false; // 首次云端拉取完成前跳过同步，避免空数据上传
 let ghSha = null; // 用于更新文件时的SHA
 
 // 从GitHub读取学生数据（云端为配置包格式 { students, redeemCodes, classTasks, holiday, teacherLogs }，兼容旧版纯学生格式）
@@ -2312,8 +2313,8 @@ function saveData() {
   try { localStorage.setItem(DB_KEY, JSON.stringify(gameData)); }
   catch(e) { toast("保存失败：存储空间不足"); }
   
-  // GitHub自动同步（防抖，1秒内只同步一次）
-  if (ghEnabled) {
+  // GitHub自动同步（防抖，1秒内只同步一次；首次云端拉取完成前跳过，避免空数据上传）
+  if (ghEnabled && ghInitDone) {
     window._syncStatus = "syncing"; updateSyncStatus();
     clearTimeout(syncTimer);
     syncTimer = setTimeout(async () => {
@@ -2531,6 +2532,7 @@ async function doLogin() {
   if (ghEnabled) {
     toast("正在同步云端数据...");
     const allStudents = await ghLoadStudents();
+    ghInitDone = true;
     if (allStudents && Object.keys(allStudents).length > 0) {
       // 智能合并：新的不被旧的覆盖
       gameData.students = mergeStudents(gameData.students, allStudents);
@@ -6057,6 +6059,7 @@ async function initFromGitHub() {
   if (ghEnabled) {
     console.log("从GitHub拉取学生数据...");
     const allStudents = await ghLoadStudents();
+    ghInitDone = true;
     if (allStudents && Object.keys(allStudents).length > 0) {
       gameData.students = mergeStudents(gameData.students, allStudents);
       localStorage.setItem(DB_KEY, JSON.stringify(gameData));
