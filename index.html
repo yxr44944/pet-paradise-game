@@ -16,7 +16,7 @@ const GH_CONFIG = {
 let ghEnabled = true;
 let ghSha = null; // 用于更新文件时的SHA
 
-// 从GitHub读取学生数据
+// 从GitHub读取学生数据（云端为配置包格式 { students, redeemCodes, classTasks, holiday, teacherLogs }，兼容旧版纯学生格式）
 async function ghLoadStudents() {
   if (!ghEnabled) return {};
   try {
@@ -35,18 +35,80 @@ async function ghLoadStudents() {
     const data = await res.json();
     ghSha = data.sha;
     const content = decodeURIComponent(escape(atob(data.content)));
-    return JSON.parse(content);
+    const parsed = JSON.parse(content);
+    // 新格式：顶层是配置包，含 students 字段
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.students && typeof parsed.students === "object" && !Array.isArray(parsed.students)) {
+      mergeCloudConfig(parsed);
+      return parsed.students;
+    }
+    // 旧格式：整个对象就是学生数据
+    return parsed;
   } catch(e) {
     console.error('GitHub读取失败', e);
     return {};
   }
 }
 
-// 保存学生数据到GitHub
-async function ghSaveStudents(students) {
-  if (!ghEnabled) return;
+// 把云端全局配置（兑换码/班级任务/假期/操作日志）合并进本地 gameData，去重且不丢失任一设备的数据
+function mergeCloudConfig(cloud) {
   try {
-    const content = JSON.stringify(students, null, 2);
+    if (!gameData) return;
+    if (Array.isArray(cloud.redeemCodes)) {
+      const map = new Map();
+      for (const c of [...(gameData.redeemCodes || []), ...cloud.redeemCodes]) {
+        if (c && c.code) {
+          const old = map.get(c.code);
+          if (!old || (c.createdAt || 0) >= (old.createdAt || 0)) map.set(c.code, c);
+        }
+      }
+      gameData.redeemCodes = Array.from(map.values());
+    }
+    if (Array.isArray(cloud.classTasks)) {
+      const map = new Map();
+      for (const t of [...(gameData.classTasks || []), ...cloud.classTasks]) {
+        if (t && (t.id || t.createdAt)) {
+          const key = t.id || String(t.createdAt);
+          const old = map.get(key);
+          if (!old || (t.createdAt || 0) >= (old.createdAt || 0)) map.set(key, t);
+        }
+      }
+      gameData.classTasks = Array.from(map.values());
+    }
+    if (cloud.holiday && typeof cloud.holiday === "object") {
+      const h = cloud.holiday;
+      if (h.enabled === true || h.start || h.end) {
+        const cur = gameData.holiday || {};
+        if (h.enabled === true || !cur.enabled) gameData.holiday = h;
+      }
+    }
+    if (Array.isArray(cloud.teacherLogs)) {
+      const map = new Map();
+      for (const l of [...(gameData.teacherLogs || []), ...cloud.teacherLogs]) {
+        if (l && l.time !== undefined && l.time !== null) {
+          const key = String(l.time) + (l.action || "");
+          if (!map.has(key)) map.set(key, l);
+        }
+      }
+      gameData.teacherLogs = Array.from(map.values());
+    }
+  } catch(e) {
+    console.error('合并云端配置失败', e);
+  }
+}
+
+// 保存数据到GitHub（配置包：学生 + 兑换码 + 班级任务 + 假期 + 操作日志，保证所有设备共享同一套配置）
+async function ghSaveStudents() {
+  if (!ghEnabled) return true;
+  try {
+    const students = gameData.students || {};
+    const buildPayload = (stu) => ({
+      students: stu,
+      redeemCodes: gameData.redeemCodes || [],
+      classTasks: gameData.classTasks || [],
+      holiday: gameData.holiday || {},
+      teacherLogs: gameData.teacherLogs || []
+    });
+    const content = JSON.stringify(buildPayload(students), null, 2);
     const base64Content = btoa(unescape(encodeURIComponent(content)));
     
     const url = `https://api.github.com/repos/${GH_CONFIG.owner}/${GH_CONFIG.repo}/contents/${GH_CONFIG.path}`;
@@ -57,7 +119,7 @@ async function ghSaveStudents(students) {
     };
     if (ghSha) body.sha = ghSha;
     
-    const res = await fetch(url, {
+    let res = await fetch(url, {
       method: 'PUT',
       headers: {
         'Authorization': `token ${GH_CONFIG.token}`,
@@ -67,15 +129,44 @@ async function ghSaveStudents(students) {
       body: JSON.stringify(body)
     });
     
+    // 409 冲突：云端已被其他设备更新。重新拉取最新数据，与本地合并后重试一次，避免静默丢失
+    if (res.status === 409) {
+      const fresh = await ghLoadStudents();
+      if (Object.keys(fresh).length > 0) {
+        const merged = mergeStudents(students, fresh);
+        gameData.students = merged;
+        const mergedContent = JSON.stringify(buildPayload(merged), null, 2);
+        const mergedBase64 = btoa(unescape(encodeURIComponent(mergedContent)));
+        const retryBody = {
+          message: 'update students (merged)',
+          content: mergedBase64,
+          branch: GH_CONFIG.branch
+        };
+        if (ghSha) retryBody.sha = ghSha;
+        res = await fetch(url, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `token ${GH_CONFIG.token}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(retryBody)
+        });
+      }
+    }
+    
     if (res.ok) {
       const data = await res.json();
       ghSha = data.content.sha;
       console.log('GitHub同步成功');
+      return true;
     } else {
       console.error('GitHub同步失败', res.status, await res.text());
+      return false;
     }
   } catch(e) {
     console.error('GitHub保存失败', e);
+    return false;
   }
 }
 </script>
@@ -2225,8 +2316,10 @@ function saveData() {
   if (ghEnabled) {
     window._syncStatus = "syncing"; updateSyncStatus();
     clearTimeout(syncTimer);
-    syncTimer = setTimeout(() => {
-      ghSaveStudents(gameData.students);
+    syncTimer = setTimeout(async () => {
+      const _ok = await ghSaveStudents();
+      window._syncStatus = _ok ? "ok" : "failed";
+      updateSyncStatus();
     }, 1000);
   }
 }
@@ -2291,10 +2384,11 @@ function recalcStats(pet) {
   let stageBoost = 1.0;
   if (st === "g") stageBoost = 1.3;
   if (st === "u") stageBoost = 1.6;
-  pet.maxHp = Math.round((150 + (pet.level - 1) * 12 + r.hp * 8) * stageBoost);
-  pet.atk = Math.round((15 + (pet.level - 1) * 4 + r.atk * 5) * stageBoost);
-  pet.def = Math.round((8 + (pet.level - 1) * 2.5 + r.def * 4) * stageBoost);
-  pet.spd = r.spd + Math.floor(pet.level * 1.2);
+  const bonus = pet.bonus || {};
+  pet.maxHp = Math.round((150 + (pet.level - 1) * 12 + r.hp * 8) * stageBoost) + (bonus.maxHp || 0);
+  pet.atk = Math.round((15 + (pet.level - 1) * 4 + r.atk * 5) * stageBoost) + (bonus.atk || 0);
+  pet.def = Math.round((8 + (pet.level - 1) * 2.5 + r.def * 4) * stageBoost) + (bonus.def || 0);
+  pet.spd = r.spd + Math.floor(pet.level * 1.2) + (bonus.spd || 0);
 }
 
 // ===== EVOLUTION STAGE =====
@@ -2958,20 +3052,23 @@ function confirmAdopt() {
     element: t.element,
     level: 1,
     exp: 0,
-    hp: 100 + r.hp,
-    maxHp: 100 + r.hp,
-    atk: 10 + r.atk,
-    def: 5 + r.def,
-    spd: r.spd + 1,
+    hp: 0,
+    maxHp: 0,
+    atk: 0,
+    def: 0,
+    spd: 0,
     energy: 100,
     hunger: 100,
     status: "normal",
     wins: 0,
     losses: 0,
     exhaustedUntil: 0,
+    bonus: {},
     createdAt: now,
     lastFedAt: now
   };
+  recalcStats(pet);
+  pet.hp = pet.maxHp;
   s.pets.push(pet);
   s.currentPetId = pet.id;
   checkAchievements(s);
@@ -3065,6 +3162,21 @@ function useItem(itemKey) {
     pet.exp += item.exp;
     Sound.feed();
     toast(`使用了 ${item.name}！血量+${item.hp}，经验+${item.exp}`);
+  } else if (item.type === "exp_potion") {
+    pet.exp += item.exp;
+    Sound.feed();
+    toast(`使用了 ${item.name}！经验+${item.exp}`);
+  } else if (item.type === "special") {
+    pet.exhaustedUntil = 0;
+    Sound.reward();
+    toast(`使用了 ${item.name}！${item.desc || "疲惫状态已解除"}`);
+  } else if (item.type === "stone") {
+    pet.bonus = pet.bonus || {};
+    pet.bonus[item.stat] = (pet.bonus[item.stat] || 0) + item.value;
+    if (item.stat === "maxHp") { pet.maxHp += item.value; pet.hp = Math.min(pet.maxHp, pet.hp + item.value); }
+    else pet[item.stat] += item.value;
+    Sound.reward();
+    toast(`使用了 ${item.name}！${item.desc || "属性提升"}`);
   }
 
   if (pet.hunger >= 20 && pet.hp > 0) pet.status = "normal";
@@ -3247,7 +3359,7 @@ function buildEnemyPet(type, level, isBoss) {
   const spdMult = isBoss ? 1.0 : 0.9;
   // 首胜保护：前3场胜利前敌方属性减半
   const _stu = getCurrentStudent();
-  if (_stu && (_stu.wins || 0) < 3) {
+  if (_stu && (_stu.battleWins || 0) < 3) {
     hpMult *= 0.5; atkMult *= 0.5; defMult *= 0.5;
   }
   const baseHp  = (150 + (level - 1) * 12 + r.hp * 8) * stageBoost;
@@ -4111,9 +4223,8 @@ function endBattle(win) {
     let leveledBefore = pet.level;
     // 延迟结算：等最后一击挥斩-黑屏-裂缝演出完整播放（约2.5秒）后再结算
     setTimeout(() => {
-      checkLevelUp(pet, s);
       // 战斗经验溢出传递给其他宠物
-      let overflow = checkLevelUp.overflow || 0;
+      let overflow = checkLevelUp(pet, s);
       if (overflow > 0 && s.pets) {
         for (const otherPet of s.pets) {
           if (otherPet.id !== pet.id && otherPet.level < MAX_LEVEL && otherPet.status !== "dead") {
