@@ -2225,7 +2225,7 @@ let battleTimer = null;
 // ===== AUDIO SYSTEM =====
 const Sound = {
   ctx: null,
-  enabled: true,
+  enabled: false, // V2.3.1 默认静音（课堂环境，可在界面开关打开）
   bgmTimer: null,
 
   init() {
@@ -3562,16 +3562,18 @@ function startRivalFight(rivalId) {
     element: rp.element,
     level: rp.level,
     maxHp: rp.maxHp,
+    hp: Math.max(1, rp.hp || rp.maxHp), // V2.3.1 对方当前真实血量带入
     atk: rp.atk,
     def: rp.def,
     spd: rp.spd,
+    energy: Math.min(100, Math.max(0, rp.energy || 0)), // V2.3.1 对方当前真实能量
     isBoss: false,
     isRival: true
   };
   battleMode = "rival";
   battleTitle = `👥 切磋 · ${rs.name}`;
   hideModal();
-  startBattle(pet, enemy);
+  startBattle(pet, enemy, rivalId); // V2.3.1 传对手ID用于双方结算
 }
 
 function randomPetType() {
@@ -3580,7 +3582,7 @@ function randomPetType() {
 }
 
 // ===== 战斗引擎 =====
-function startBattle(myPet, enemy) {
+function startBattle(myPet, enemy, rivalId) { // V2.3.1 第三参传对手ID
   battleState = {
     my: {
       name: myPet.name,
@@ -3603,11 +3605,11 @@ function startBattle(myPet, enemy) {
       element: enemy.element,
       level: enemy.level,
       maxHp: enemy.maxHp,
-      hp: enemy.maxHp,
+      hp: enemy.hp !== undefined ? enemy.hp : enemy.maxHp, // V2.3.1 真实血量
       atk: enemy.atk,
       def: enemy.def,
       spd: enemy.spd,
-      energy: 50,
+      energy: enemy.energy !== undefined ? Math.max(0, Math.min(100, enemy.energy)) : 50, // V2.3.1 真实能量
       cd: [0, 0, 0, 0],
       skills: SKILLS[enemy.type] || []
     },
@@ -3615,8 +3617,26 @@ function startBattle(myPet, enemy) {
     log: [],
     running: true,
     over: false,
-    myPetRef: myPet
+    myPetRef: myPet,
+    rivalId: (typeof rivalId !== "undefined" && battleMode === "rival") ? rivalId : null // V2.3.1 记录对手用于双方结算
   };
+  // V2.3.1 PVP(切磋)等级差平衡：高等级削弱、低等级增强，保证对战有来有回
+  if (battleMode === "rival") {
+    const d = Math.abs(battleState.my.level - battleState.en.level);
+    if (d > 0) {
+      const weakMult = Math.max(0.5, 1 / (1 + 0.05 * d));
+      const strongMult = Math.min(1.5, 2 - weakMult);
+      const myIsHigh = battleState.my.level > battleState.en.level;
+      const myMult = myIsHigh ? weakMult : strongMult;
+      const enMult = myIsHigh ? strongMult : weakMult;
+      battleState.my.atk = Math.max(1, Math.round(battleState.my.atk * myMult));
+      battleState.my.def = Math.max(0, Math.round(battleState.my.def * myMult));
+      battleState.my.spd = Math.max(1, Math.round(battleState.my.spd * myMult));
+      battleState.en.atk = Math.max(1, Math.round(battleState.en.atk * enMult));
+      battleState.en.def = Math.max(0, Math.round(battleState.en.def * enMult));
+      battleState.en.spd = Math.max(1, Math.round(battleState.en.spd * enMult));
+    }
+  }
   document.getElementById("battleScreen").classList.add("show");
   document.getElementById("battleTitle").textContent = battleTitle;
   document.getElementById("battleLog").innerHTML = "";
@@ -3798,6 +3818,10 @@ function performAttack(from, to, sk, isPlayer, skillIdx) {
     dmg = Math.max(1, Math.round(
       from.atk * sk.mult * em * (0.85 + Math.random() * 0.3) - to.def * 0.5
     ));
+    if (battleMode === "rival") { // V2.3.1 PVP平衡：保底伤害 + 单次上限40%防秒杀
+      dmg = Math.max(dmg, Math.round(from.atk * sk.mult * em * 0.15));
+      dmg = Math.min(dmg, Math.max(1, Math.round(to.maxHp * 0.4)));
+    }
     if (crit) dmg = Math.round(dmg * 1.5);
     to.hp = Math.max(0, to.hp - dmg);
     let suffix = "";
@@ -4270,6 +4294,16 @@ function endBattle(win) {
           }
         }
       }
+      if (battleMode === "rival" && battleState.rivalId) { // V2.3.1 对方真实掉血耗蓝
+        const rs2 = gameData.students[battleState.rivalId];
+        if (rs2) {
+          const rp2 = rs2.pets.find(p => p.id === rs2.currentPetId) || rs2.pets[0];
+          if (rp2) {
+            rp2.hp = Math.max(1, Math.round(bs.en.hp));
+            rp2.energy = Math.min(100, Math.max(0, bs.en.energy));
+          }
+        }
+      }
       saveData();
       showModal(`
         <button class="modal-close" onclick="hideModal()">✕</button>
@@ -4291,8 +4325,8 @@ function endBattle(win) {
     Sound.lose();
     // 战败重置冒险连胜
     if (battleMode === "adventure") s.winStreak = 0;
-    // 战败：不死亡，HP=1，疲惫30分钟
-    pet.hp = 1;
+    // 战败：不死亡，PVP保留真实剩余血量(最低1)，冒险保持HP=1；疲惫10分钟
+    pet.hp = (battleMode === "rival") ? Math.max(1, Math.round(bs.my.hp)) : 1; // V2.3.1 PVP真实掉血
     pet.energy = Math.min(100, Math.max(0, bs.my.energy)); // V2.2 战败能量写回
     pet.exhaustedUntil = Date.now() + 10 * 60000; // V2.2 处罚缩短至10分钟
     pet.hunger = Math.max(0, pet.hunger - 15); // V2.3 对战消耗饱食度
@@ -4303,6 +4337,16 @@ function endBattle(win) {
     s.battleLosses = (s.battleLosses || 0) + 1;
     recordDaily(s, "battle");
     checkAchievements(s);
+    if (battleMode === "rival" && battleState.rivalId) { // V2.3.1 对方真实掉血耗蓝
+      const rs3 = gameData.students[battleState.rivalId];
+      if (rs3) {
+        const rp3 = rs3.pets.find(p => p.id === rs3.currentPetId) || rs3.pets[0];
+        if (rp3) {
+          rp3.hp = Math.max(1, Math.round(bs.en.hp));
+          rp3.energy = Math.min(100, Math.max(0, bs.en.energy));
+        }
+      }
+    }
     saveData();
     // 延迟弹结算：等敌方击杀我方时的炫酷演出完整播放
     setTimeout(() => {
@@ -4343,6 +4387,10 @@ function showSettings() {
         <div>冒险连胜：${s.winStreak||0} 场</div>
         <div>连续签到：${s.signInStreak || 0} 天</div>
       </div>
+    </div>
+    <div style="margin-bottom:16px;">
+      <div class="fw-700" style="margin-bottom:8px;">声音</div>
+      <button class="btn btn-secondary btn-sm" style="width:100%;" onclick="toggleSound();showSettings();">${Sound.enabled ? "🔊 声音：开" : "🔇 声音：关"}</button>
     </div>
     <div style="margin-bottom:16px;">
       <div class="fw-700" style="margin-bottom:8px;">数据管理</div>
