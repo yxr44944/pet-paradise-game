@@ -3653,13 +3653,32 @@ function startBattle(myPet, enemy, rivalId) { // V2.3.1 第三参传对手ID
 function quitBattle() {
   Sound.click();
   if (!battleState || battleState.over) return;
-  if (!confirm("要撤退吗？撤退没有奖励也没有惩罚。")) return;
+  if (!confirm("要撤退吗？撤退会保留战斗中已消耗的血量与能量。")) return;
   battleState.running = false;
   battleState.over = true;
   if (battleTimer) { clearTimeout(battleTimer); battleTimer = null; }
+  // V2.3.2：撤退写回真实血量/蓝量（冒险只写我方；同学对战双方都写回）
+  const st = getCurrentStudent();
+  if (st) {
+    if (battleState.myPetRef) {
+      battleState.myPetRef.hp = Math.max(1, Math.min(battleState.myPetRef.maxHp, Math.round(battleState.my.hp)));
+      battleState.myPetRef.energy = Math.min(100, Math.max(0, battleState.my.energy));
+    }
+    if (battleState.rivalId && gameData.students[battleState.rivalId]) {
+      const rp = gameData.students[battleState.rivalId];
+      const rpet = rp.pets.find(p => p.id === rp.currentPetId) || rp.pets[0];
+      if (rpet) {
+        rpet.hp = Math.max(1, Math.min(rpet.maxHp, Math.round(battleState.en.hp)));
+        rpet.energy = Math.min(100, Math.max(0, battleState.en.energy));
+      }
+      rp.lastUpdate = Date.now();
+    }
+    st.lastUpdate = Date.now();
+    saveData();
+  }
   document.getElementById("battleScreen").classList.remove("show");
   battleState = null;
-  toast("已撤退");
+  toast("已撤退，保留当前血量与能量");
 }
 
 
